@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+import rospy
+from nav_msgs.msg import Odometry
+from geometry_msgs.msg import PoseWithCovarianceStamped, PointStamped
+from sensor_msgs.msg import Imu
+from tf.transformations import euler_from_quaternion
+from math import atan2, sqrt, pi, sin, cos
+import numpy as np
+import casadi as ca
+
+class PathPlanner:
+    def __init__(self):
+        rospy.init_node('path_planner_mpc')
+
+        # MPC Controller Parameters
+        self.horizon = 10  # Prediction horizon
+        self.dt = 0.1  # Control interval
+
+        # Vehicle parameters
+        self.L = 1.04  # Wheelbase length
+
+        # Initialize state and control variables
+        self.x = 0.0
+        self.y = 0.0
+        self.theta = 0.0
+        self.v = 0.0  # Current velocity
+
+        # MPC Controller setup
+        self.mpc_controller = MPCController(self.horizon, self.dt, self.L)
+
+        # ROS Subscribers
+        self.odom_subscriber = rospy.Subscriber('/odom', Odometry, self.odom_callback)
+        self.imu_subscriber = rospy.Subscriber('/imu', Imu, self.imu_callback)
+
+        # ROS Publishers
+        self.control_publisher = rospy.Publisher('/control_command', Evelocity, queue_size=1)
+
+    def odom_callback(self, data):
+        # Update vehicle's position
+        self.x = data.pose.pose.position.x
+        self.y = data.pose.pose.position.y
+
+    def imu_callback(self, data):
+        # Update vehicle's orientation
+        orientation_q = data.orientation
+        orientation_list = [orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w]
+        _, _, yaw = euler_from_quaternion(orientation_list)
+        self.theta = yaw
+
+    def run(self):
+        rate = rospy.Rate(10)  # 10 Hz
+        while not rospy.is_shutdown():
+            # Get current state
+            current_state = [self.x, self.y, self.theta, self.v]
+
+            # Define a reference path or target point here
+            ref_path = [[self.x + 5, self.y + 5]]  # Just an example, use actual path points
+
+            # Compute control actions from MPC
+            steering_angle, target_velocity = self.mpc_controller.compute_control(current_state, ref_path)
+
+            # Publish control commands
+            control_cmd = Evelocity()
+            control_cmd.steering = steering_angle
+            control_cmd.velocity = target_velocity
+            self.control_publisher.publish(control_cmd)
+
+            rate.sleep()
+
+class MPCController:
+    def __init__(self, N, dt, L):
+        # Define prediction horizon, control interval and vehicle parameters here
+        # Initialize CasADi variables and parameters for the vehicle model and MPC formulation
+        pass
+
+    def compute_control(self, current_state, ref_path):
+        # Implement MPC computation using CasADi here
+        # Return the computed steering angle and target velocity
+        return 0.0, 0.0  # Replace with actual control values
+
+if __name__ == '__main__':
+    try:
+        path_planner = PathPlanner()
+        path_planner.run()
+    except rospy.ROSInterruptException:
+        pass
