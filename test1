@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+import rospy
+from geometry_msgs.msg import PoseWithCovarianceStamped, PointStamped
+from math import atan2, sqrt, cos, sin
+import numpy as np
+from nav_msgs.msg import Odometry
+from erp42_serial.msg import ESerial, Evelocity, setState
+from std_msgs.msg import Float64
+from tf.transformations import euler_from_quaternion
+import casadi as ca
+
+class PathPlanner:
+    class MPCController:
+        def __init__(self, horizon=10, dt=0.1):
+            self.N = horizon  # 예측 지평선
+            self.dt = dt  # 시간 간격
+            self.L = 1.04  # 차량의 축거
+
+            # MPC 모델 변수 설정
+            self.x = ca.MX.sym('x')
+            self.y = ca.MX.sym('y')
+            self.theta = ca.MX.sym('theta')
+            self.v = ca.MX.sym('v')
+            self.states = ca.vertcat(self.x, self.y, self.theta, self.v)  # 상태 변수
+            self.c_r = ca.MX.sym('c_r')  # 조향각
+            self.c_v = ca.MX.sym('c_v')  # 속도
+            self.controls = ca.vertcat(self.c_r, self.c_v)  # 제어 변수
+
+            # 차량 동적 모델 정의
+            self.dyn = ca.vertcat(
+                self.v * ca.cos(self.theta),
+                self.v * ca.sin(self.theta),
+                self.v * ca.tan(self.c_r) / self.L,
+                self.c_v
+            )
+
+            # 적분을 위한 함수
+            self.integrator = self.create_integrator()
+
+        def create_integrator(self):
+            # 적분을 위한 캐사디 함수 생성
+            dae = {'x': self.states, 'p': self.controls, 'ode': self.dyn}
+            opts = {'tf': self.dt}
+            integrator = ca.integrator('integrator', 'cvodes', dae, opts)
+            return integrator
+
+        def setup_optimization(self, ref_path, x0):
+            # MPC 최적화 문제 설정
+            X = ca.MX.sym('X', 4, self.N+1)
+            U = ca.MX.sym('U', 2, self.N)
+
+            # 경로와의 거리에 대한 비용을 계산
+            obj = 0
+            g = []  # 제약 조건 리스트
+            Q = ca.MX(1 * ca.DM.eye(4))  # 상태 비용 가중치
+            R = ca.MX(0.1 * ca.DM.eye(2))  # 입력 비용 가중치
+
+            P = []  # 문제 파라미터 (초기 상태 + 참조 경로)
+            P.append(ca.MX.sym('P_init', 4))
+            for i in range(self.N):
+                P.append(ca.MX.sym(f'P_{i}', 2))
+
+            g.append(X[:, 0] - P[0])
+
+            for k in range(self.N):
+                st = X[:, k]
+                con = U[:, k]
+                cost = ca.mtimes([(st - P[k+1]).T, Q, (st - P[k+1])]) + ca.mtimes([con.T, R, con])
+                obj += cost
+                st_next = self.integrator(x0=st, p=con)['xf']
+                g.append(X[:, k+1] - st_next)
+
+            # 최적화 문제 설정
+            opts = {'ipopt.print_level': 0, 'print_time': False}
+            prob = {'f': obj, 'x': ca.vertcat(ca.reshape(X, -1, 1), ca.reshape(U, -1, 1)), 'g': ca.vertcat(*g), 'p': ca.vertcat(*P)}
+            solver = ca.nlpsol('solver', 'ipopt', prob, opts)
+
+            return solver, X, U, P
+
+        def control_update(self, current_state, ref_path):
+            # 현재 상태와 참조 경로를 기반으로 최적화 문제를 풀어 제어 입력을 계산
+            # 실제 사용에서는 ref_path와 current_state를 업데이트하여 이 함수를 반복 호출
+            pass
+
+    def __init__(self):
+        self.mpc_controller = self.MPCController(horizon=20, dt=0.1)
+        # 이곳에 다른 초기화 코드를 포함합니다.
+
+    def move_turtle(self):
+        # move_turtle 메소드에서 MPC 컨트롤러를 사용하도록 변경
+        pass  # 여기에 로직 구현
+
+def main():
+    rospy.init_node('Path_Planner_MPC')
+    pp = PathPlanner()
+    rospy.spin()
+
+if __name__ == '__main__':
+    main()
