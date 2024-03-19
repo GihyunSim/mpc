@@ -69,6 +69,9 @@ class PathPlanner:
 
 class MPCController:
     def __init__(self, N, dt, L):
+        self.N = N
+        self.dt = dt
+        self.L = L
         # Define prediction horizon, control interval and vehicle parameters here
         # Initialize CasADi variables and parameters for the vehicle model and MPC formulation
         pass
@@ -76,7 +79,7 @@ class MPCController:
     def compute_control(self, current_state, ref_path):
         # Implement MPC computation using CasADi here
         # Return the computed steering angle and target velocity
-        return 0.0, 0.0  # Replace with actual control values
+        return 0.1, 2  # Replace with actual control values
 
 if __name__ == '__main__':
     try:
